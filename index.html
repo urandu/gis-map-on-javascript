@@ -1,0 +1,279 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <!--The viewport meta tag is used to improve the presentation and behavior of the
+    samples on iOS devices-->
+    <meta name="viewport" content="initial-scale=1, maximum-scale=1,user-scalable=no">
+    <title>Global Forest Watch</title>
+
+    <link rel="stylesheet" href="http://js.arcgis.com/3.9/js/esri/css/esri.css">
+    <style>
+        html, body, #map {
+            height:100%;
+            width:100%;
+            margin:0;
+            padding:0;
+        }
+        .esriScalebar{
+            padding: 20px 20px;
+        }
+        #map{
+            padding:0;
+
+        #HomeButton {
+            position: absolute;
+            top: 95px;
+            left: 20px;
+            z-index: 50;
+        }
+        }
+    </style>
+
+    <script>var dojoConfig = { parseOnLoad: true };</script>
+    <script src="http://js.arcgis.com/3.9/"></script>
+    <script type="text/javascript" src="http://ajax.googleapis.com/ajax/libs/jquery/1.4/jquery.min.js"></script>
+
+    <script>
+        function createCORSRequest(method, url)
+        {
+            var xhr = new XMLHttpRequest();
+            if ("withCredentials" in xhr) {
+
+                // Check if the XMLHttpRequest object has a "withCredentials" property.
+                // "withCredentials" only exists on XMLHTTPRequest2 objects.
+                xhr.open(method, url, true);
+
+            } else if (typeof XDomainRequest != "undefined") {
+
+                // Otherwise, check if XDomainRequest.
+                // XDomainRequest only exists in IE, and is IE's way of making CORS requests.
+                xhr = new XDomainRequest();
+                xhr.open(method, url);
+
+            }
+            else
+            {
+                // Otherwise, CORS is not supported by the browser.
+                xhr = null;
+            }
+            return xhr;
+        }
+
+    </script>
+
+    <script>
+        var map, basemap;
+        require([
+            "esri/map",
+            "esri/layers/FeatureLayer",
+            "esri/dijit/Legend",
+            "esri/dijit/PopupTemplate",
+            "esri/request",
+            "esri/geometry/Point",
+            "esri/graphic",
+            "dojo/on",
+            "dojo/_base/array",
+            "dojo/domReady!"
+        ], function(
+                Map,
+                FeatureLayer,
+                Legend,
+                PopupTemplate,
+                esriRequest,
+                Point,
+                Graphic,
+                on,
+                array
+        ) {
+            var initialExtent = new esri.geometry.Extent({
+                "xmin": -180,
+                "ymin": -90,
+                "xmax": 180,
+                "ymax": 90,
+                "spatialReference": {
+                    "wkid": 4326
+                }
+            });
+            var featureLayer;
+
+            //esriConfig.defaults.io.proxyUrl = "http://localhost/proxy/proxy.ashx";
+
+            map = new Map("map", {
+                extent: initialExtent,
+                zoom: 1
+            });
+            basemap = new esri.layers.ArcGISTiledMapServiceLayer("http://unepliveservices.unep.org/arcgis/rest/services/UNBasemap/MapServer");
+            map.addLayer(basemap);
+
+            //hide the popup if its outside the map's extent
+            map.on("mouse-drag", function(evt) {
+                if (map.infoWindow.isShowing) {
+                    var loc = map.infoWindow.getSelectedFeature().geometry;
+                    if (!map.extent.contains(loc)) {
+                        map.infoWindow.hide();
+                    }
+                }
+            });
+
+            //create a feature collection for the waqi
+            var featureCollection = {
+                "layerDefinition": null,
+                "featureSet": {
+                    "features": [],
+                    "geometryType": "esriGeometryPoint"
+                }
+            };
+            featureCollection.layerDefinition = {
+                "geometryType": "esriGeometryPoint",
+                "objectIdField": "ObjectID",
+                "drawingInfo": {
+                    "renderer": {
+                        "type": "simple",
+                        "symbol": {
+                            "type" : "esriSMS",
+                            "style" : "esriSMSCircle",
+                            "color" : [ 67, 100, 255, 70 ],
+                            "size" : 7
+                        }
+                    }
+                },
+                "fields": [{
+                    "name": "ObjectID",
+                    "alias": "ObjectID",
+                    "type": "esriFieldTypeOID"
+                }, {
+                    "name": "city",
+                    "alias": "City",
+                    "type": "esriFieldTypeString"
+                }
+                ]
+            };
+
+            //define a popup template
+            var popupTemplate = new PopupTemplate({
+                title: "{title}",
+                description: "{description}",
+            });
+
+            //create a feature layer based on the feature collection
+            featureLayer = new FeatureLayer(featureCollection, {
+                id: 'airqualitylayer',
+                infoTemplate: popupTemplate
+            });
+
+            //associate the features with the popup on click
+            featureLayer.on("click", function(evt) {
+                map.infoWindow.setFeatures([evt.graphic]);
+            });
+
+            map.on("layers-add-result", function(results) {
+
+
+                var xhr = createCORSRequest('GET', 'http://unepliveservices.unep.org/JSONViewer/aqi.json');
+                if (!xhr)
+                {
+                    throw new Error('CORS not supported');
+                    alert('cors not supported');
+                }
+
+
+
+                xhr.onload = function()
+                {
+                    var responseText = xhr.responseText;
+                    console.log(responseText);
+                    // process the response.
+
+                    var features = [];
+
+                    var aqJson = JSON.parse(responseText);
+                    var total=aqJson.results.length;
+                    //alert(total);
+                    var x = 0;
+                    var y = 0;
+                    for(x=0;x<total;x++) //for(x=0;x<aqJson.results.length;x++)
+                    {
+                        var item = aqJson.results[x];
+                        //var item2 = aqJson.results[5];
+                        var attr = {};
+                        attr["description"] = "<em>Location: " + item.location + "</em>" +" <br>" + "City: <b><i>"+item.city+"</i></b> <br>" + "Country: " + item.country;
+
+
+
+
+                        var item_total=item.measurements.length;
+
+                        for(t=0;t<item_total;t++)
+                        {
+                            attr["description"] = attr["description"] + "<br>" + "Measurement ("+ item.measurements[t].parameter+"): " + item.measurements[t].value + item.measurements[t].unit;
+                        }
+
+
+
+
+
+
+
+
+                        attr["title"] = item.city;
+                        //alert(item.coordinates.longitude);
+                        if( typeof item.coordinates !="undefined")
+                        {
+                            var geometry = new Point(item.coordinates.longitude, item.coordinates.latitude);
+                        }
+
+
+                        var graphic = new Graphic(geometry);
+                        graphic.setAttributes(attr);
+                        features.push(graphic);
+
+                    }
+
+                    featureLayer.applyEdits(features, null, null);
+                };
+
+                xhr.onerror = function()
+                {
+                    console.log('There was an error!');
+                    //alert('hello');
+                };
+
+                xhr.ontimeout = function()
+                {
+                    console.log('There was an timeout error!');
+                    //alert('hello');
+                };
+
+                xhr.send();
+
+            });
+
+            //add the feature layer that contains the waqi data to the map
+            map.addLayers([featureLayer]);
+
+            var legendDijit = new Legend({
+                map: map,
+                layerInfos: [{layer: featureLayer}]
+            }, "Legend");
+            legendDijit.startup();
+
+            function requestSucceeded(response, io)
+            {
+                console.log('succeded');
+            }
+
+            function requestFailed(error) {
+                console.log('failed');
+            }
+        });
+    </script>
+</head>
+<body >
+<div id="map"></div>
+<div id="Legend"></div>
+</body>
+
+</html>
+ 
